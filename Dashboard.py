@@ -3,14 +3,19 @@ import pandas as pd
 import requests
 import time
 from streamlit_autorefresh import st_autorefresh
+import subprocess
+import sys
 
 # Configurações do Firebase
 FIREBASE_HOST = "https://urbanplanting-128db-default-rtdb.firebaseio.com/"
 FIREBASE_AUTH = "ehJp3GsR9eG0bvZnmgHFvzzavFeQEaRM8zfvxlu1"
 
+# Este URL aponta diretamente para o arquivo GLB, permitindo o carregamento correto.
+MODEL_PLANT_URL = "https://raw.githubusercontent.com/igzwaca/Projetos/main/planta.glb"
+
 # Configurações da página
-st.set_page_config(layout="wide")
-st.title("Dashboard - 📊 Leitura dos Sensores")
+st.set_page_config(layout="centered")
+st.title("📊 Leitura dos Sensores")
 
 # Histórico de dados
 if "dados_historico" not in st.session_state:
@@ -20,6 +25,7 @@ st_autorefresh(interval=10000, key="refresh")
 
 area_fundo = st.empty()
 
+
 # Função para pegar dados do Firebase
 def dados_sensores():
     url = f"{FIREBASE_HOST}projeto/sensores.json?auth={FIREBASE_AUTH}"
@@ -27,6 +33,7 @@ def dados_sensores():
     if response.status_code == 200:
         return response.json() or {}
     return {}
+
 
 # Pega os dados atuais
 dados = dados_sensores()
@@ -37,8 +44,8 @@ sensores = dados.get("sensores", dados)
 # Valores dos sensores
 temperatura = sensores.get("temperatura", 0)
 umidade = sensores.get("umidade", 0)
-luminosidade = sensores.get("luminosidade", 0)
 solo = sensores.get("umidade_terra", 0)
+luminosidade = sensores.get("luminosidade", 0)
 
 # Formata os dados
 dados_formatados = {
@@ -51,7 +58,7 @@ dados_formatados = {
 
 # Atualiza histórico
 st.session_state.dados_historico.append(dados_formatados)
-if len(st.session_state.dados_historico) > 20:
+if len(st.session_state.dados_historico) > 10:
     st.session_state.dados_historico.pop(0)
 
 # Converte para DataFrame
@@ -65,6 +72,77 @@ with area_fundo.container():
     col3.metric("☀️ Luminosidade", f"{luminosidade} lx")
     col4.metric("🌱 Solo", f"{solo} %")
 
-    st.line_chart(df[["Temperatura (°C)", "Umidade (%)", "Umidade do Solo (%)"]])
-    st.area_chart(df[["Luminosidade (lx)"]])
+    st.line_chart(df[["Temperatura (°C)", "Umidade (%)", "Umidade do Solo (%)", "Luminosidade (lx)"]])
 
+# Atualiza histórico (limita a 10 pontos)
+st.session_state.dados_historico.append(dados_formatados)
+if len(st.session_state.dados_historico) > 10:
+    st.session_state.dados_historico.pop(0)
+
+st.subheader("Dados coletados - 🔍")
+st.dataframe(df.tail(10))
+
+if st.button("Enviar status dos sensores para o whatsapp"):
+    with st.spinner("📨 Enviando mensagem... aguarde!"):
+        try:
+            resultado = subprocess.run(
+                [sys.executable, "mensagem_whatsapp.py"],
+                capture_output=True,
+                text=True,
+                check=True  # Levanta um erro se o script retornar um código de saída diferente de zero
+            )
+
+            # Se chegou aqui, a execução foi bem-sucedida
+            st.success(f"✅ Automação '{"mensagem_whatsapp.py"}' executada com sucesso!")
+
+            # Mostra a saída (stdout) do script, se houver
+            if resultado.stdout:
+                st.code(resultado.stdout, language="text")
+
+        except subprocess.CalledProcessError as e:
+            st.error(f"❌ Erro ao executar a automação '{"mensagem_whatsapp.py"}'.")
+            st.exception(e)
+            st.code(f"Saída de erro (stderr):\n{e.stderr}", language="text")
+
+        except FileNotFoundError:
+            st.error(
+                f"⚠️ Arquivo '{"mensagem_whatsapp.py"}' não encontrado. Certifique-se de que ele está no mesmo diretório."
+            )
+
+        except Exception as e:
+            st.error(f"❌ Ocorreu um erro inesperado durante a execução da automação.")
+            st.exception(e)
+
+st.subheader("Jardim 3D 🪴🌿")
+
+# HTML para o visualizador 3D
+planta_html = f"""
+<script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+
+<div style="padding: 10px; border: 1px solid #ddd; border-radius: 12px;">
+    <model-viewer src="{MODEL_PLANT_URL}"
+                alt="Planta 3D"
+                auto-rotate
+                camera-controls
+                shadow-intensity="1"
+                exposure="1.1"
+                style="width: 100%; height: 500px; background: radial-gradient(circle, #f0f0f5 0%, #e0e0e0 100%); border-radius:10px;">
+        <div slot="poster" style="
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100%; 
+            background-color: #f8f8f8; 
+            border-radius: 10px;
+            color: #888;
+            font-family: sans-serif;
+            text-align: center;
+        ">
+            Carregando Modelo 3D...
+        </div>
+    </model-viewer>
+</div>
+"""
+
+# Exibe o componente HTML
+st.components.v1.html(planta_html, height=540)
